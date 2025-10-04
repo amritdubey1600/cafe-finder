@@ -1,103 +1,166 @@
-import Image from "next/image";
+"use client";
+import dynamic from "next/dynamic";
+import { useState, useRef, useEffect } from "react";
+import debounce from 'lodash.debounce';
+import MapForm from "@/components/MapForm";
+import CafeList from "@/components/CafeList";
+import { Coffee, MapIcon } from "lucide-react";
+
+export interface CafeType {
+  id: number;
+  lat: number;
+  lon: number;
+  name?: string
+}
+
+// Dynamically import Map to disable SSR
+const Map = dynamic(() => import("../components/Map"), {
+  ssr: false,
+});
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [cafes, setCafes] = useState<CafeType[]>([]);
+  const [position, setPosition] = useState<[number, number] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedCafe, setSelectedCafe] = useState<CafeType | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const updateMap = (selectedPosition: [number, number]) => {
+
+    setPosition(selectedPosition);
+  }
+
+  const handleCafeClick = (cafe: CafeType) => {
+    setSelectedCafe(cafe);
+    setPosition([cafe.lat, cafe.lon]);
+    // Close mobile menu after selecting a cafe
+    if (window.innerWidth < 768) {
+      setIsMobileMenuOpen(false);
+    }
+  };
+
+  const fetchCafesRef = useRef(
+    debounce(async (bounds: L.LatLngBounds) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const south = bounds.getSouth();
+        const west = bounds.getWest();
+        const north = bounds.getNorth();
+        const east = bounds.getEast();
+
+        const query = `[out:json];node["amenity"="cafe"](${south},${west},${north},${east});out;`;
+        const url =
+          "https://overpass-api.de/api/interpreter?data=" +
+          encodeURIComponent(query);
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        const resCafes = data.elements.map((el: {id: number; lat: number; lon: number; tags: {name?: string}}) => ({
+          id: el.id,
+          lat: el.lat,
+          lon: el.lon,
+          name: el.tags?.name,
+        }));
+
+        setCafes(resCafes);
+        console.log("Fetched cafes:", resCafes);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching cafes:", error);
+        setError("Failed to load cafes. Please wait a moment and try again.");
+        setLoading(false);
+      }
+    }, 1000)
+  );
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      fetchCafesRef.current.cancel();
+    };
+  }, []);
+
+  return (
+    <div className="flex h-screen w-full bg-gray-50 relative">
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        className={`
+          md:hidden fixed top-3 right-4 z-50 
+           p-3 
+          ${isMobileMenuOpen?'text-white':'bg-white rounded-lg shadow-lg'}
+          hover:bg-gray-100 transition-colors
+        `}
+        aria-label="Toggle menu"
+      >
+        {isMobileMenuOpen ? <MapIcon className="w-6 h-6" /> : <Coffee className="w-6 h-6" />}
+      </button>
+
+      {/* Sidebar - Desktop & Mobile */}
+      <div
+        className={`
+          ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:translate-x-0
+          md:w-1/2 lg:w-2/5
+          fixed md:relative
+          h-full
+          w-full sm:w-96
+          bg-white shadow-lg 
+          flex flex-col 
+          overflow-hidden
+          transition-all duration-300 ease-in-out
+          z-40
+        `}
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r z-50 flex gap-1 items-center justify-center from-pink-500 to-rose-500 px-6 py-4 text-white">
+          <Coffee className="w-7 h-7 relative bottom-0.5" />
+          <h1 className="text-2xl font-bold mb-1">
+            Cafe Finder
+          </h1>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+        {/* Form Section */}
+        <div className="p-6 border-b border-gray-200">
+          <MapForm updateMap={updateMap} />
+        </div>
+
+        {/* Cafe List Section */}
+        <div className="flex-1 overflow-hidden">
+          <CafeList 
+            cafes={cafes} 
+            loading={loading} 
+            error={error} 
+            onCafeClick={handleCafeClick} 
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        </div>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Map Section */}
+      <div className={`
+        flex-1 
+        relative
+        transition-all duration-300 ease-in-out
+      `}>
+        <Map 
+          position={position} 
+          fetchCafes={fetchCafesRef.current} 
+          cafes={cafes} 
+          loading={loading}
+          selectedCafe={selectedCafe}
+        />
+      </div>
     </div>
   );
 }
