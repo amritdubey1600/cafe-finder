@@ -70,7 +70,7 @@ export default function Home() {
         setLoading(false);
       } catch (error) {
         console.error("Error fetching cafes:", error);
-        setError("Failed to load cafes. Please wait a moment and try again.");
+        setError("Too many requests too soon — free rate limit reached. Please wait and try again.");
         setLoading(false);
       }
     }, 1000)
